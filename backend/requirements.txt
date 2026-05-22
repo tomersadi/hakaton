@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pandas
+numpy
+scikit-learn
+xgboost
+langgraph
+langchain-core
+langchain-anthropic
+anthropic
+openpyxl
+joblib
+pydantic
+python-dotenv
+aiofiles
