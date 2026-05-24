@@ -52,7 +52,7 @@ function CustomerRow({ c, rank }: { c: Customer; rank: number }) {
         <td style={{ padding: '10px 12px', fontWeight: 800, color: '#1B5ECE' }}>#{rank}</td>
         <td style={{ padding: '10px 12px', fontWeight: 600 }}>{c.customerid}</td>
         <td style={{ padding: '10px 12px' }}>{c.age} / {c.gender}</td>
-        <td style={{ padding: '10px 12px' }}>${c.debtamount.toLocaleString()}</td>
+        <td style={{ padding: '10px 12px' }}>₪{c.debtamount.toLocaleString()}</td>
         <td style={{ padding: '10px 12px' }}>{c.debtagedays}d</td>
         <td style={{ padding: '10px 12px' }}>
           <span style={{

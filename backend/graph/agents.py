@@ -120,7 +120,7 @@ def explanation_agent(state: PipelineState) -> dict:
     for c in top_n:
         customer_summaries.append(
             f"ID {c['customerid']}: age={c['age']}, gender={c['gender']}, "
-            f"debt=${c['debtamount']:.0f}, debt_age={c['debtagedays']}d, "
+            f"debt=₪{c['debtamount']:.0f}, debt_age={c['debtagedays']}d, "
             f"card={c['cardstatus']}, pd_rating={c['pd_rating']}, "
             f"returning={c['returningcustomer']}, backup_card={c['backupcard']}, "
             f"product={c['creditproducts']}, pay_prob={c['payment_probability']:.2%}"

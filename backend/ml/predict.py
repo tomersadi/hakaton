@@ -79,12 +79,20 @@ def predict_dataframe(df: pd.DataFrame) -> list[dict]:
     # Normalize scores to 0.05–0.95 range
     s_min, s_max = scores.min(), scores.max()
     if s_max > s_min:
-        probs = 0.05 + 0.90 * (scores - s_min) / (s_max - s_min)
+        probs = pd.Series(0.05 + 0.90 * (scores - s_min) / (s_max - s_min), index=df.index)
     else:
         probs = pd.Series([0.5] * len(df), index=df.index)
 
+    now = pd.Timestamp.now()
     results = []
     for i, (_, row) in enumerate(df.iterrows()):
+        try:
+            raw_date = row.get('DebtHistory_1_Date') or ''
+            debt_date = pd.to_datetime(str(raw_date), dayfirst=True, errors='coerce')
+            debtagedays = int((now - debt_date).days) if pd.notna(debt_date) else 0
+        except Exception:
+            debtagedays = 0
+
         results.append({
             'customerid': str(row.get('CustomerID', i)),
             'payment_probability': float(round(probs.iloc[i], 4)),
@@ -98,9 +106,9 @@ def predict_dataframe(df: pd.DataFrame) -> list[dict]:
             'zip': str(row.get('ZIP', '')),
             'socioeconomicindex': int(row.get('SocioEconomicIndex', 0) or 0),
             'isbankcard': bool(int(row.get('IsBankCard', 0) or 0)),
-            'age': 0,
-            'debtamount': 0,
-            'debtagedays': 0,
+            'age': int(row.get('Age', 0) or 0),
+            'debtamount': float(row.get('DebtHistory_1_Amount', 0) or 0),
+            'debtagedays': debtagedays,
         })
 
     results.sort(key=lambda x: x['payment_probability'], reverse=True)
