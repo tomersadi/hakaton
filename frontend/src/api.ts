@@ -54,4 +54,18 @@ export const api = {
   },
 
   downloadUrl: (jobId: string) => `${BASE}/jobs/${jobId}/download`,
+
+  trainUpload: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await axios.post<{ job_id: string }>(`${BASE}/train`, form);
+    return res.data;
+  },
+
+  getTrainJob: async (jobId: string) => {
+    const res = await axios.get<{ job_id: string; status: string; auc: number | null; error: string | null }>(
+      `${BASE}/train/${jobId}`
+    );
+    return res.data;
+  },
 };

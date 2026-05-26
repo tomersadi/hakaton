@@ -75,6 +75,7 @@
 | **LangGraph** | Orchestrates all 5 steps, handles pause/resume for human review |
 | **FastAPI** | Bridge between the browser and the LangGraph pipeline |
 | **React frontend** | 4-screen UI: upload → processing → review → call list |
+| **POST /train** | Accepts manager CSV → retrains XGBoost → saves new model.pkl instantly |
 
 > The LLM does **not** make predictions — the XGBoost model does.
 > Claude only reads the model's output and translates it into plain English
@@ -135,6 +136,66 @@ Customer B: PD=Low (+5), Card=Blocked (+0), Returning=No (+0),
 
 > Scores are normalized across the full uploaded batch so the range is always 5%–95%.
 > This means rankings are **relative** within each uploaded file.
+
+## Model Training (XGBoost)
+
+The system includes a separate training pipeline that builds a binary classifier
+from historical debt data. A manager can upload a new training CSV to retrain
+the model at any time without restarting the server.
+
+### Training Flow
+
+```
+Manager uploads training CSV
+         │
+         ▼
+POST /train  (FastAPI)
+         │
+         ▼
+ml/features.py  — engineers 17 features from raw columns
+(gender, PD rating, card status, avg collection days,
+ return reasons, alert counts, etc.)
+         │
+         ▼
+ml/train.py  — XGBoost XGBClassifier
+(200 estimators, max_depth=6, learning_rate=0.05,
+ class-balanced via scale_pos_weight)
+         │
+         ▼
+80/20 train/test split → AUC score reported back
+         │
+         ▼
+models/model.pkl  ← saved, immediately used for next upload
+```
+
+### Target Variable
+
+```
+DebtHistory_1_CollectionDays < 60  →  label = 1  (quick payer)
+DebtHistory_1_CollectionDays ≥ 60  →  label = 0  (slow / hard to collect)
+```
+
+### Features Used (17 total)
+
+| Feature | Source Column |
+|---|---|
+| gender_enc | Gender |
+| pd_rating_enc | PD_Rating |
+| cardstatus_enc | CardStatus |
+| socioeconomicindex | SocioEconomicIndex |
+| returningcustomer | ReturningCustomer |
+| backupcard | BackupCard |
+| standingorder | StandingOrder |
+| creditproductcode | CreditProductCode |
+| isbankcard | IsBankCard |
+| avg_hist_amount | DebtHistory_2–5_Amount |
+| max_hist_amount | DebtHistory_2–5_Amount |
+| num_hist_debts | DebtHistory_2–5_Amount |
+| avg_collection_days | DebtHistory_2–5_CollectionDays |
+| num_prior_card_expired | DebtHistory_2–5_ReturnReason |
+| num_prior_insufficient | DebtHistory_2–5_ReturnReason |
+| num_prior_technical | DebtHistory_2–5_ReturnReason |
+| num_alerts | Alert_1–5_Code |
 
 ## ML Model Details
 

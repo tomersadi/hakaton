@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from './api';
 import type { Job, Customer } from './api';
-import { Upload, CheckCircle, XCircle, Clock, Download, Phone, AlertTriangle, FileText } from 'lucide-react';
+import { Upload, CheckCircle, XCircle, Clock, Download, Phone, AlertTriangle, FileText, BrainCircuit, X } from 'lucide-react';
 import Landing from './Landing';
 import './App.css';
 
@@ -79,13 +79,118 @@ function CustomerRow({ c, rank }: { c: Customer; rank: number }) {
   );
 }
 
-function CalNav() {
+function TrainModal({ onClose }: { onClose: () => void }) {
+  const [status, setStatus] = useState<'idle' | 'uploading' | 'queued' | 'running' | 'completed' | 'error'>('idle');
+  const [auc, setAuc] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+
+  useEffect(() => () => stopPoll(), []);
+
+  const handleFile = async (file: File) => {
+    setStatus('uploading');
+    setError(null);
+    try {
+      const { job_id } = await api.trainUpload(file);
+      setStatus('queued');
+      pollRef.current = setInterval(async () => {
+        const job = await api.getTrainJob(job_id);
+        if (job.status === 'completed') {
+          stopPoll(); setStatus('completed'); setAuc(job.auc);
+        } else if (job.status === 'error') {
+          stopPoll(); setStatus('error'); setError(job.error);
+        } else {
+          setStatus(job.status as 'queued' | 'running');
+        }
+      }, 2000);
+    } catch (e: unknown) {
+      setStatus('error');
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  };
+
+  return (
+    <div className="train-overlay" onClick={onClose}>
+      <div className="train-modal" onClick={e => e.stopPropagation()}>
+        <div className="train-modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <BrainCircuit size={20} color="#1B5ECE" />
+            <span style={{ fontWeight: 700, fontSize: 16, color: '#0F3485' }}>Retrain Model</span>
+          </div>
+          <button className="train-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        <p style={{ fontSize: 13, color: '#445580', marginBottom: 16 }}>
+          Upload a labeled CSV to retrain the XGBoost scoring model. The new model takes effect immediately.
+        </p>
+
+        {status === 'idle' || status === 'uploading' ? (
+          <div
+            className={`train-dropzone ${dragging ? 'dragging' : ''}`}
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            onClick={() => fileRef.current?.click()}
+          >
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" hidden
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+            {status === 'uploading'
+              ? <><Clock size={32} color="#1B5ECE" /><span>Uploading…</span></>
+              : <><Upload size={32} color="#8096C0" /><span>Drop training CSV / XLSX here or click to browse</span></>
+            }
+          </div>
+        ) : status === 'queued' || status === 'running' ? (
+          <div className="train-status running">
+            <div className="train-spinner" />
+            <span>{status === 'queued' ? 'Queued — waiting to start…' : 'Training XGBoost model…'}</span>
+            <p style={{ fontSize: 12, color: '#8096C0', marginTop: 4 }}>This may take a minute for large files.</p>
+          </div>
+        ) : status === 'completed' ? (
+          <div className="train-status done">
+            <CheckCircle size={36} color="#10b981" />
+            <span style={{ fontWeight: 700, fontSize: 16, color: '#065f46' }}>Model retrained successfully</span>
+            {auc !== null && (
+              <div className="train-auc">AUC score: <strong>{(auc * 100).toFixed(1)}%</strong></div>
+            )}
+            <p style={{ fontSize: 12, color: '#445580', marginTop: 8 }}>New model is active — next upload will use it.</p>
+            <button className="btn-approve" style={{ marginTop: 12 }} onClick={onClose}>
+              <CheckCircle size={16} /> Done
+            </button>
+          </div>
+        ) : (
+          <div className="train-status error">
+            <AlertTriangle size={36} color="#ef4444" />
+            <span style={{ fontWeight: 700, color: '#991b1b' }}>Training failed</span>
+            <p style={{ fontSize: 12, color: '#7f1d1d', marginTop: 4 }}>{error}</p>
+            <button className="btn-reject" style={{ marginTop: 12 }} onClick={() => { setStatus('idle'); setError(null); }}>
+              Try again
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CalNav({ onTrain }: { onTrain: () => void }) {
   return (
     <nav className="cal-nav">
       <div className="cal-nav-logo">
         <img src="/cal-logo.svg" alt="Cal" className="app-logo-img" />
         <span className="logo-collect">Collect</span>
       </div>
+      <button className="train-nav-btn" onClick={onTrain}>
+        <BrainCircuit size={15} /> Retrain Model
+      </button>
     </nav>
   );
 }
@@ -97,6 +202,7 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewComment, setReviewComment] = useState('');
+  const [showTrain, setShowTrain] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -163,10 +269,13 @@ export default function App() {
   // ── Landing Step ─────────────────────────────────────────────────────────
   if (step === 'landing') return <Landing onStart={() => setStep('upload')} />;
 
+  const trainModal = showTrain && <TrainModal onClose={() => setShowTrain(false)} />;
+
   // ── Upload Step ──────────────────────────────────────────────────────────
   if (step === 'upload') return (
     <>
-    <CalNav />
+    {trainModal}
+    <CalNav onTrain={() => setShowTrain(true)} />
     <div className="container">
       <div className="header">
         <h1>Upload Customer File</h1>
@@ -196,7 +305,8 @@ export default function App() {
     const current = steps.indexOf(job?.step ?? '');
     return (
       <>
-      <CalNav />
+      {trainModal}
+      <CalNav onTrain={() => setShowTrain(true)} />
       <div className="container">
         <div className="header">
           <h1>Processing your file…</h1>
@@ -226,7 +336,8 @@ export default function App() {
     const topN = (job.predictions ?? []).slice(0, 10);
     return (
       <>
-      <CalNav />
+      {trainModal}
+      <CalNav onTrain={() => setShowTrain(true)} />
       <div className="container wide">
         <div className="header">
           <h1>Supervisor Review</h1>
@@ -302,7 +413,8 @@ export default function App() {
     const list = job.final_call_list ?? [];
     return (
       <>
-      <CalNav />
+      {trainModal}
+      <CalNav onTrain={() => setShowTrain(true)} />
       <div className="container wide">
         <div className="header">
           <CheckCircle size={32} color="#10b981" />

@@ -3,6 +3,7 @@ import io
 import os
 import uuid
 import json
+import tempfile
 import asyncio
 import pandas as pd
 from pathlib import Path
@@ -15,6 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from graph.pipeline import GRAPH
+from ml.train import train as run_xgboost_training
 
 app = FastAPI(title="Debt Collection Prioritizer")
 
@@ -30,6 +32,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 # In-memory job store (use Redis/DB in production)
 JOBS: dict[str, dict] = {}
+TRAIN_JOBS: dict[str, dict] = {}
 
 
 class ReviewDecision(BaseModel):
@@ -180,6 +183,47 @@ def download_call_list(job_id: str):
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=call_list_{job_id[:8]}.csv"},
     )
+
+
+def run_training(job_id: str, tmp_path: str):
+    try:
+        TRAIN_JOBS[job_id]["status"] = "running"
+        result = run_xgboost_training(tmp_path)
+        TRAIN_JOBS[job_id].update({"status": "completed", "auc": round(result["auc"], 4)})
+    except Exception as e:
+        TRAIN_JOBS[job_id].update({"status": "error", "error": str(e)})
+    finally:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+
+
+@app.post("/train")
+async def upload_training_file(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    """Accept a CSV/XLSX from a manager and retrain the XGBoost model."""
+    if not file.filename:
+        raise HTTPException(400, "No filename provided")
+    ext = Path(file.filename).suffix.lower()
+    if ext not in ('.csv', '.xlsx', '.xls'):
+        raise HTTPException(400, "Only CSV and XLSX files are supported")
+
+    contents = await file.read()
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    tmp.write(contents)
+    tmp.close()
+
+    job_id = str(uuid.uuid4())
+    TRAIN_JOBS[job_id] = {"job_id": job_id, "status": "queued", "auc": None, "error": None}
+    background_tasks.add_task(run_training, job_id, tmp.name)
+    return {"job_id": job_id}
+
+
+@app.get("/train/{job_id}")
+def get_train_job(job_id: str):
+    if job_id not in TRAIN_JOBS:
+        raise HTTPException(404, "Training job not found")
+    return TRAIN_JOBS[job_id]
 
 
 @app.get("/health")
